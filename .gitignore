@@ -1,2 +1,13 @@
+# Large data files
 data/mats-2633/*.mat
 data/*.zip
+
+# Slurm log files
+**/*.out
+
+# Large directories 
+code_processing/binary-networks/flipped
+code_processing/binary-networks/results_li
+code_processing/binary-networks/results_sub
+code_processing/binary-networks/source
+code_processing/binary-networks/subtract
