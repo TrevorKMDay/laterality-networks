@@ -1,10 +1,14 @@
-setwd("G:/My Drive/Research/laterality/laterality-wta/")
+path <- "/Research/laterality/laterality-wta"
+locs <- c("G:/My Drive", "I:", "/Volumes",
+          "/home/tkmd/Insync/day00096@umn.edu/Google Drive")
+
+for (i in locs)
+  if (dir.exists(paste0(i, path)))
+    setwd(paste0(i, path))
 
 library(tidyverse)
 library(rstatix)
 library(data.table)
-library(Hmisc)
-library(corrplot)
 
 nets_lut <- tibble(
     net      = 1:16,
@@ -18,18 +22,31 @@ nets_lut <- tibble(
 # Binary LI
 
 # Read in data
-wta <- read_csv("data/wta-results.csv",
-                col_names = c("sub", "net", "dice1", "dice1.ol", "dice1.x",
-                              "dice1.y", "dice2", "dice2.ol", "dice2.x",
-                              "dice2.y", "orig_n", "flip_n", "LI")) %>%
+pnet <- read_csv("code_processing/binary-networks/results_li.csv") %>%
+  rename(
+    net = ix,
+    LI  = li
+  ) %>%
   select(sub, net, LI) %>%
   filter(
     !(net %in% c(4, 6))
   ) %>%
-  left_join(nets_lut)
+  left_join(nets_lut) %>%
+  mutate(
+    # Net laterality should never be exactly 1, indicates some problem
+    LI = replace(LI, abs(LI) == 1, NA)
+  ) %>%
+  filter(
+    !is.na(LI)
+  ) %>%
+  mutate(
+    sub = str_remove(sub, "results_li/")
+  )
+
+saveRDS(pnet, "data/pnet.rds")
 
 # Summarize by network
-bLI_summary <- wta %>%
+bLI_summary <- pnet %>%
   group_by(net, net_name) %>%
   nest() %>%
   mutate(
@@ -50,24 +67,25 @@ bLI_summary <- wta %>%
   arrange(desc(abs(effect)))
 
 # BH correction needs to be done outside of mutate
-bli_summary$p.cor <- p.adjust(bli_summary$p, method = "BH")
+bLI_summary$p.cor <- p.adjust(bLI_summary$p, method = "BH")
 
 dir.create("plots", showWarnings = FALSE)
 
-png("plots/wta_bLI.png", width = 6.5, height = 4, units = "in", res = 300)
+png("plots/pnet_bLI.png", width = 6.5, height = 4, units = "in", res = 300)
 
-ggplot(wta, aes(x = net_name, y = LI, fill = net_name)) +
-  geom_boxplot(notch = TRUE) +
+ggplot(pnet, aes(x = net_name, y = LI, fill = net_name)) +
+  geom_boxplot(notch = TRUE, varwidth = TRUE, notchwidth = 0,
+               outlier.alpha = 0.5) +
   geom_hline(yintercept = c(-0.2, 0, 0.2), color = "red") +
   geom_text(data = bLI_summary, y = -1, aes(label = n_lt2), size = 4) +
   geom_text(data = bLI_summary, y =  1, aes(label = n_gt2), size = 4) +
   geom_text(data = bLI_summary, y =  1.1, aes(label = e_size), size = 5,
             color = "red") +
-  scale_y_continuous(limits = c(-1.1, 1.2), sec.axis = dup_axis()) +
+  scale_y_continuous(limits = c(-1.1, 1.2)) +
   theme_minimal() +
   theme(legend.position = "none") +
   labs(x = "Network", y = "Binary LI",
-       caption = paste0("n=", length(unique(wta$sub))))
+       caption = paste0("n=", length(unique(pnet$sub))))
 
 dev.off()
 
@@ -76,6 +94,17 @@ dev.off()
 # Continuous LI
 
 cLI_rds <-  "data/cLI.rds"
+
+# dates <- list.files("data/mats-2633", full.names = TRUE) %>%
+#   lapply(function(.x) file.info(.x)) %>%
+#   rbindlist() %>%
+#   dplyr::select(ends_with("time")) %>%
+#   mutate(
+#     across(everything(), as.Date)
+#   )
+#
+# ggplot(dates, aes(ctime)) +
+#   geom_histogram()
 
 if (!file.exists(cLI_rds)) {
 
@@ -96,12 +125,17 @@ if (!file.exists(cLI_rds)) {
   cLI <- readRDS(cLI_rds)
 }
 
-png("plots/wta_cLI.png", width = 6.5, height = 4, units = "in", res = 300)
+cLI <- cLI %>%
+  filter(
+    sub %in% pnet$sub
+  )
+
+png("plots/pnet_cLI.png", width = 6.5, height = 4, units = "in", res = 300)
 
 ggplot(cLI, aes(x = net_name, y = mean_diff, fill = net_name)) +
   geom_boxplot(notch = TRUE) +
   geom_hline(yintercept = 0, color = "red") +
-  scale_y_continuous(limits = c(-1, 1) * 0.1, sec.axis = dup_axis()) +
+  scale_y_continuous(limits = c(-1, 1) * 0.1) +
   theme_minimal() +
   theme(legend.position = "none") +
   labs(x = "Network", y = "Continuous LI",
@@ -122,12 +156,11 @@ t_test <- cLI %>%
   ) %>%
   left_join(nets_lut)
 
-png("plots/wta_tLI.png", width = 6.5, height = 4, units = "in", res = 300)
+png("plots/pnet_tLI.png", width = 6.5, height = 4, units = "in", res = 300)
 
 ggplot(t_test, aes(x = net_name, y = d, fill = net_name)) +
   geom_boxplot(notch = TRUE) +
   geom_hline(yintercept = 0, color = "red") +
-  scale_y_continuous(sec.axis = dup_axis()) +
   theme_minimal() +
   theme(legend.position = "none") +
   labs(x = "Network", y = "Cohen's d",
@@ -137,44 +170,35 @@ dev.off()
 
 ################################################################################
 
-wta_wide <- wta %>%
-  select(sub, net_name, LI) %>%
-  pivot_wider(names_from = net_name, values_from = LI) %>%
-  select(-sub) %>%
-  as.matrix() %>%
-  rcorr()
-
-n_comparisons <- 14 ^ 2 - 14
-p_thresh <- 0.05 / n_comparisons
-
-png("plots/wta_corrplot.png", width = 5, height = 5, units = "in", res = 300)
-
-corrplot(wta_wide$r, method = "color",
-         order = "hclust", hclust.method = "complete",
-         p.mat = wta_wide$P, sig.level = p_thresh)
-
-dev.off()
-
 # Correlations
 
-li_cor <- wta %>%
+li_cor <- pnet %>%
   select(sub, net_name, LI) %>%
   rename(bLI = LI) %>%
   left_join(
-    select(cLI, sub, net_name, mean_diff)
+    select(cLI, sub, net_name, mean_diff),
+    by = c("sub", "net_name")
   ) %>%
   rename(cLI = mean_diff) %>%
   left_join(
-    select(t_test, sub, net_name, d)
+    select(t_test, sub, net_name, d),
+    by = c("sub", "net_name")
   ) %>%
   rename(tLI = d) %>%
   na.omit()
 
+van <- li_cor %>%
+  filter(
+    net_name == "VAN"
+  ) %>%
+  arrange(bLI)
+
 ggplot(li_cor, aes(x = bLI, y = cLI)) +
   geom_point(alpha = 0.1) +
-  geom_smooth(method = "lm") +
+  geom_smooth(method = "lm", formula = y ~ abs(x) ) +
   facet_wrap(vars(net_name)) +
-  labs(title = "bLI v. cLI")
+  labs(title = "bLI v. cLI") +
+  theme_bw()
 
 ggplot(li_cor, aes(x = bLI, y = tLI)) +
   geom_smooth(method = "lm") +
@@ -192,45 +216,17 @@ bLI_summary_short <- bLI_summary %>%
   select(net_name, effect)
 
 li_cor_mat <- li_cor %>%
-  na.omit() %>%
   group_by(net_name) %>%
-  nest() %>%
-  mutate(
-
-    n = map_dbl(data, nrow),
-
-    bLI_mean = map_dbl(data, ~mean(.x$bLI)),
-    cLI_mean = map_dbl(data, ~mean(.x$cLI)),
-    tLI_mean = map_dbl(data, ~mean(.x$tLI)),
-
-    bLI_sd = map_dbl(data, ~sd(.x$bLI)),
-    cLI_sd = map_dbl(data, ~sd(.x$cLI)),
-    tLI_sd = map_dbl(data, ~sd(.x$tLI)),
-
-    bLI_d = bLI_mean / bLI_sd,
-    cLI_d = cLI_mean / cLI_sd,
-    tLI_d = tLI_mean / tLI_sd,
-
-    bc = map_dbl(data, ~cor(.x$bLI, .x$cLI)),
-    bt = map_dbl(data, ~cor(.x$bLI, .x$tLI)),
-    ct = map_dbl(data, ~cor(.x$cLI, .x$tLI))
-
+  na.omit() %>%
+  summarize(
+    n   = n(),
+    b_c = cor(bLI, cLI),
+    b_t = cor(bLI, tLI),
+    c_t = cor(cLI, tLI)
   ) %>%
-  select(net_name, n, ends_with("_d"), matches("^..$")) %>%
-  arrange(desc(abs(bLI_d)))
-
-
-  # dplyr::summarize(
-  #   n   = n(),
-  #   b_c = cor(bLI, cLI),
-  #   b_t = cor(bLI, tLI),
-  #   c_t = cor(cLI, tLI)
-  # ) %>%
-  # left_join(bLI_summary_short) %>%
-  # select(net, net_name, effect, everything()) %>%
-  # arrange(desc(abs(effect)))
-
-write.csv(li_cor_mat, "clipboard")
+  left_join(bLI_summary_short) %>%
+  select(net, net_name, effect, everything()) %>%
+  arrange(desc(abs(effect)))
 
 
 # bc_t = bc * sqrt(nrow(.) / 2) / sqrt(1 - bc^2),
@@ -239,8 +235,7 @@ write.csv(li_cor_mat, "clipboard")
 # Calculated t-stat for each r value within comparison
 n_obs <- unique(li_cor_mat$n)
 li_cor_mat_t <- li_cor_mat %>%
-  ungroup() %>%
-  select(matches("^..$")) %>%
+  select(matches("^._.$")) %>%
   mutate(
     across(everything(), ~(.x * sqrt(n_obs / 2) / sqrt(1 - .x^2)))
   )

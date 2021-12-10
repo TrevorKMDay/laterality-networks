@@ -51,7 +51,8 @@ vwise_subject <- vwise_long %>%
   nest() %>%
   mutate(
     mean_diff = map_dbl(data, ~mean(.x$diff)),
-    model = map(data, ~t.test(.x$lh, .x$rh, paired = TRUE, var.equal = TRUE))
+    model     = map(data, ~t.test(.x$lh, .x$rh, paired = TRUE, 
+                                  var.equal = TRUE))
   ) %>%
   left_join(nets_lut) %>%
   select(network, net, net_name, mean_diff, model)
