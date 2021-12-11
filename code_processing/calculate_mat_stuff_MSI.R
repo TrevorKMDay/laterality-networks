@@ -5,7 +5,8 @@ library(raveio)
 library(ciftiTools)
 
 args <- c("D:/workbench-windows64-v1.4.2/workbench/bin_windows64",
-          "sub-NDARINV00BD7VDC.mat",
+          "C:/Users/Trevor/Desktop/hO2t.dtseries.nii",
+          "C:/Users/Trevor/Desktop/hO2t_flipped.dscalar.nii",
           "C:/Users/Trevor/Desktop/sub-NDARINV003RTV85_ses-baselineYear1Arm1_task-rest_bold_timeseries_template_matched_Zscored_overlap_smooth_then_derivative.dtseries.nii",
           "C:/Users/Trevor/Desktop/flipped_sub-NDARINV00BD7VDC_ses-baselineYear1Arm1_task-rest_bold_timeseries_template_matched_Zscored_overlap_smooth_then_derivative_recolored.dscalar.nii"
           )
@@ -13,9 +14,10 @@ args <- c("D:/workbench-windows64-v1.4.2/workbench/bin_windows64",
 # args <- commandArgs(trailingOnly = TRUE)
 
 ciftiTools.setOption("wb_path", args[1])
-input_mat <- args[2]
-mask_LR   <- args[3]
-mask_RL   <- args[4]
+eta_LR  <- args[2]
+eta_RL  <- args[3]
+mask_LR <- args[4]
+mask_RL <- args[5]
 
 out <- "./sub-NDARINV00BD7VDC.ods"
 
@@ -28,65 +30,45 @@ nets_lut <- tibble(
                "SMI", "AUD", "TP", "MTL", "PMN", "PON")
 )
 
-
-m_to_long <- function(dat, threshold = 0) {
-
-  half <- nrow(dat) / 2
-
-  dat <- replace(dat, dat <= threshold, 0)
-
-  ldat <- dat %>%
-    as_tibble() %>%
-    mutate(
-      voxel = row_number(),
-      lh    = ifelse(voxel <= half, "lh", "rh")
-    ) %>%
-    group_by(lh) %>%
-    mutate(
-      vox_pair = row_number()
-    )  %>%
-    pivot_longer(-c(voxel, vox_pair, lh), names_to = "network") %>%
-    pivot_wider(id_cols = c(vox_pair, network), values_from = value,
-                names_from = c(lh)) %>%
-    mutate(
-      diff = lh - rh
-    )
-
-}
-
 ###############################################################################
 
 # Load in mask
 cifti_LR <- read_cifti(mask_LR)
 cifti_RL <- read_cifti(mask_RL)
 
-# Take the original mask and the flipped mask, so that the data in the RL left
-# hemisphere is actually the RH mask projected onto the left.
-# Calculate the union for both directions.
-mask_L <- cifti_LR$data$cortex_left  | cifti_RL$data$cortex_left
-mask_R <- cifti_LR$data$cortex_right | cifti_RL$data$cortex_right
+# The RL map puts the RH data in the LH, so exclude voxel if it is not in either
+# mask
+mask_L <- cifti_LR$data$cortex_left | cifti_RL$data$cortex_left
 
-# Now create the complete
-OR_mask <- rbind(mask_L, mask_R)[, -c(4, 6)] %>%
-  replace(!., NA)
+# Replace 0 with NA for later
+mask_L_NA <- replace(mask_L, !mask_L, NA)
 
-################################################################################
+###############################################################################
 
-voxelwise_data <- read_mat(input_mat)$eta_to_template_vox
-vwise_long <- m_to_long(voxelwise_data) %>%
-  filter(
-    !(network %in% c("V4", "V6"))
+# Again extract the data from the origina project and the flipped projection
+eta_LR_data <- read_cifti(eta_LR)$data$cortex_left
+eta_RL_data <- read_cifti(eta_RL)$data$cortex_left
+
+eta_LmR <- (eta_LR_data - eta_RL_data) * mask_L_NA
+
+diff_by_net <- apply(eta_LmR, 2, mean, na.rm = TRUE)
+
+###############################################################################
+
+ttest_by_net <- lapply(c(1:3, 5, 7:16), function(.x)
+                      t.test(eta_LR_data[, .x] * mask_L_NA[, .x],
+                             eta_RL_data[, .x] * mask_L_NA[, .x],
+                             paired = TRUE,
+                             var.equal = TRUE))
+
+ttest_by_net_tibble <- tibble(
+    net   = c(1:3, 5, 7:16),
+    ttest = ttest_by_net,
   )
 
-vwise_subject <- vwise_long %>%
-  group_by(network) %>%
-  nest() %>%
+by_net <- left_join(nets_lut, ttest_by_net_tibble) %>%
   mutate(
-    mean_diff = map_dbl(data, ~mean(.x$diff)),
-    model     = map(data, ~t.test(.x$lh, .x$rh, paired = TRUE,
-                                  var.equal = TRUE))
-  ) %>%
-  left_join(nets_lut) %>%
-  select(network, net, net_name, mean_diff, model)
+    diff  = diff_by_net
+  )
 
-saveRDS(vwise_subject, out)
+saveRDS(by_net, out)
