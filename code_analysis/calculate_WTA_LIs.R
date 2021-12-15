@@ -17,6 +17,8 @@ nets_lut <- tibble(
                  "SMI", "AUD", "TP", "MTL", "PMN", "PON")
   )
 
+nihtbx <- read_rds("../abcd-laterality/local_code/nih_nihtb_bl.rds")
+
 ###############################################################################
 
 # Binary LI
@@ -93,29 +95,18 @@ dev.off()
 
 # Continuous LI
 
-cLI_rds <-  "data/cLI.rds"
-
-# dates <- list.files("data/mats-2633", full.names = TRUE) %>%
-#   lapply(function(.x) file.info(.x)) %>%
-#   rbindlist() %>%
-#   dplyr::select(ends_with("time")) %>%
-#   mutate(
-#     across(everything(), as.Date)
-#   )
-#
-# ggplot(dates, aes(ctime)) +
-#   geom_histogram()
+cLI_rds <-  "data/cLI_ARM1.rds"
 
 if (!file.exists(cLI_rds)) {
 
   # Get list of files and read in from RDS (will take a minute)
-  cLI_list <- list.files("data/mats-2633/", full.names = TRUE) %>%
+  cLI_list <- list.files("data/mats-ARMS1/", full.names = TRUE) %>%
     lapply(readRDS)
 
   # Separate out processing from loading when loading is burdensome
   cLI <- rbindlist(cLI_list) %>%
     mutate(
-      sub = rep(list.files("data/mats-2633/"), each = 14) %>%
+      sub = rep(list.files("data/mats-ARMS1/"), each = 16) %>%
         str_remove(".rds")
     )
 
@@ -127,12 +118,24 @@ if (!file.exists(cLI_rds)) {
 
 cLI <- cLI %>%
   filter(
-    sub %in% pnet$sub
+    sub %in% pnet$sub,
+    !(net %in% c(4, 6))
   )
+
+cLI_effsize <- cLI %>%
+  select(-ttest) %>%
+  group_by(net_name) %>%
+  nest() %>%
+  mutate(
+    m_LI = map_dbl(data, ~mean(.x$diff)),
+    sd_LI = map_dbl(data, ~sd(.x$diff)),
+    d = m_LI / sd_LI
+  ) %>%
+  arrange(desc(abs(d)))
 
 png("plots/pnet_cLI.png", width = 6.5, height = 4, units = "in", res = 300)
 
-ggplot(cLI, aes(x = net_name, y = mean_diff, fill = net_name)) +
+ggplot(cLI, aes(x = net_name, y = diff, fill = net_name)) +
   geom_boxplot(notch = TRUE) +
   geom_hline(yintercept = 0, color = "red") +
   scale_y_continuous(limits = c(-1, 1) * 0.1) +
@@ -148,19 +151,20 @@ dev.off()
 # t-test
 
 t_test <- cLI %>%
-  select(sub, net_name, model) %>%
+  select(sub, net_name, ttest) %>%
   mutate(
-    t = map_dbl(model, ~.x$statistic),
-    n = 26706,
+    t = map_dbl(ttest, ~.x$statistic),
+    n = 29696,
     d = t / sqrt(n)
   ) %>%
-  left_join(nets_lut)
+  left_join(nets_lut) %>%
+  arrange(desc(abs(d)))
 
 png("plots/pnet_tLI.png", width = 6.5, height = 4, units = "in", res = 300)
 
 ggplot(t_test, aes(x = net_name, y = d, fill = net_name)) +
   geom_boxplot(notch = TRUE) +
-  geom_hline(yintercept = 0, color = "red") +
+  geom_hline(yintercept = c(-0.2, 0, 0.2), color = "red") +
   theme_minimal() +
   theme(legend.position = "none") +
   labs(x = "Network", y = "Cohen's d",
@@ -170,22 +174,36 @@ dev.off()
 
 ################################################################################
 
+hand <- read_csv("../abcd-laterality/local_code/handedness/handedness.csv") %>%
+  mutate(
+    sub = paste0("sub-", subjectkey)
+  ) %>%
+  select(sub, handedness)
+
 # Correlations
 
 li_cor <- pnet %>%
   select(sub, net_name, LI) %>%
   rename(bLI = LI) %>%
   left_join(
-    select(cLI, sub, net_name, mean_diff),
+    select(cLI, sub, net_name, diff),
     by = c("sub", "net_name")
   ) %>%
-  rename(cLI = mean_diff) %>%
+  rename(cLI = diff) %>%
   left_join(
     select(t_test, sub, net_name, d),
     by = c("sub", "net_name")
   ) %>%
   rename(tLI = d) %>%
-  na.omit()
+  na.omit() %>%
+  left_join(hand)
+
+li_cor_nested <- li_cor %>%
+  group_by(sub) %>%
+  nest() %>%
+  mutate(
+    n = map_int(data, nrow)
+  )
 
 van <- li_cor %>%
   filter(
@@ -195,7 +213,7 @@ van <- li_cor %>%
 
 ggplot(li_cor, aes(x = bLI, y = cLI)) +
   geom_point(alpha = 0.1) +
-  geom_smooth(method = "lm", formula = y ~ abs(x) ) +
+  geom_smooth(method = "lm") +
   facet_wrap(vars(net_name)) +
   labs(title = "bLI v. cLI") +
   theme_bw()
@@ -246,3 +264,50 @@ li_cor_mat_p <- li_cor_mat_t %>%
   )
 
 li_cor_mat_pcor <- li_cor_mat_p * prod(dim(li_cor_mat_p))
+
+###############################################################################
+
+li_nih <- li_cor %>%
+  mutate(
+    Identifiers = str_remove(sub, "sub-")
+  ) %>%
+  left_join(nihtbx) %>%
+  select(Identifiers, net_name, bLI, cLI, starts_with("nihtbx"))
+
+li_nih_bLI_cor <- li_nih %>%
+  pivot_longer(c(bLI, cLI), values_to = "LI") %>%
+  select(-Identifiers) %>%
+  group_by(net_name, name) %>%
+  nest() %>%
+  mutate(
+    cor = map(data, cor, use = "complete.obs"),
+    LI_cor = map(cor, ~.x[11, ])
+  )
+
+li_corrplot <- li_nih_bLI_cor %>%
+  select(net_name, name, cor) %>%
+  mutate(
+    cor = map(cor, as_tibble)
+  ) %>%
+  unnest(cor) %>%
+  filter(
+    row_number() %% 11 == 0
+  ) %>%
+  select(-LI) %>%
+  pivot_longer(starts_with("nihtbx"), names_to = "nihtbx") %>%
+  mutate(
+    full_name = paste0(net_name, "_", name),
+    nihtbx = str_remove(nihtbx, "nihtbx_"),
+    r = value,
+    t = r / sqrt((1 - r^2) / (2442 - 2)),
+    p = 2 * pt(-abs(t), 2442 - 2),
+    sig = p < (.05 / 28)
+  )
+
+ggplot(li_corrplot, aes(x = nihtbx, y = net_name, fill = value)) +
+  geom_tile() +
+  geom_text(aes(label = if_else(sig, "*", NA_character_)), color = "white") +
+  scale_fill_gradient2(limits = c(-0.12, 0.12)) +
+  facet_grid(cols = vars(name)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
