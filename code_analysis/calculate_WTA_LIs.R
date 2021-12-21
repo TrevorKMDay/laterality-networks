@@ -21,6 +21,16 @@ nihtbx <- read_rds("../abcd-laterality/local_code/nih_nihtb_bl.rds")
 
 ###############################################################################
 
+sk <- read_csv("C:/Users/Trevor/Desktop/all_ks.csv") %>%
+  mutate(
+    subid = str_remove(subid, "_sk.csv:.*")
+  ) %>%
+  select(-V4, -V6) %>%
+  pivot_longer(-c(subid, hemi, var), names_to = "network") %>%
+  left_join(nets_lut) %>%
+  select(subid, net_name, hemi, var, value) %>%
+  pivot_wider(names_from = c(hemi, var), values_from = value)
+
 # Binary LI
 
 # Read in data
@@ -274,6 +284,8 @@ li_nih <- li_cor %>%
   left_join(nihtbx) %>%
   select(Identifiers, net_name, bLI, cLI, starts_with("nihtbx"))
 
+lm(nihtbx_reading )
+
 li_nih_bLI_cor <- li_nih %>%
   pivot_longer(c(bLI, cLI), values_to = "LI") %>%
   select(-Identifiers) %>%
@@ -311,3 +323,78 @@ ggplot(li_corrplot, aes(x = nihtbx, y = net_name, fill = value)) +
   facet_grid(cols = vars(name)) +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+png("OHBM_abstract_fig1.png", width = 500, height = 500, units = "px")
+
+li_corrplot %>%
+  filter(
+    name == "cLI"
+  ) %>%
+  ggplot(aes(x = nihtbx, y = net_name, fill = value)) +
+    geom_tile() +
+    geom_text(aes(label = if_else(sig, "*", NA_character_)), color = "white") +
+    scale_fill_gradient2(limits = c(-0.12, 0.12),
+                         breaks = c(-0.1, -0.05, 0, 0.05, .1),
+                         labels = c("-1", "-.05", "0", ".05", ".1")) +
+    scale_y_discrete() +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          legend.position = "bottom") +
+    labs(x = "NIH Toolbox", y = "Network")
+
+dev.off()
+
+li_corrplot %>%
+  filter(
+    net_name == "VAN",
+    name == "cLI"
+  ) %>%
+  arrange(desc(r))
+
+li_corrplot %>%
+  filter(
+    name == "cLI"
+  ) %>%
+  arrange(desc(r))
+
+##############################################################################
+
+li_cor_sk <- left_join(li_cor, sk, by = c("sub" = "subid", "net_name")) %>%
+  select(-tLI, -handedness) %>%
+  mutate(
+    lr_skewness  = l_skewness / r_skewness,
+    lr_kurtosis  = l_kurtosis / r_kurtosis,
+    lmr_skewness = l_skewness - r_skewness,
+    lmr_kurtosis = l_kurtosis - r_kurtosis
+  ) %>%
+  pivot_longer(c(ends_with("skewness"), ends_with("kurtosis"))) %>%
+  group_by(name) %>%
+  mutate(
+    value_Z = scale(value)
+  ) %>%
+  separate(name, into = c("hemi", "metric"))
+
+smd_cor_sk <- li_cor_sk %>%
+  filter(
+    net_name == "SMd"
+  )
+
+ggplot(smd_cor_sk, aes(x = bLI, y = cLI, color = value_Z > 0)) +
+  geom_point(alpha = 0.1) +
+  facet_grid(rows = vars(metric), cols = vars(hemi)) +
+  labs(title = "bLI v. cLI") +
+  theme_bw()
+
+li_cor_sk_lrkurt <- li_cor_sk %>%
+  filter(
+    hemi == "lr",
+    metric == "kurtosis"
+  )
+
+ggplot(li_cor_sk_lrkurt, aes(x = bLI, y = cLI, color = value)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(aes(linetype = value > 1), method = "lm", formula = y ~ abs(x)) +
+  scale_color_gradient2(midpoint = 1, mid = "white", limits = c(0.5, 1.5)) +
+  facet_wrap(vars(net_name)) +
+  labs(title = "bLI v. cLI") +
+  theme_bw()
