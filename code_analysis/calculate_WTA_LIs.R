@@ -105,25 +105,30 @@ dev.off()
 
 # Continuous LI
 
-cLI_rds <-  "data/cLI_ARM1.rds"
+for (i in 1:2) {
 
-if (!file.exists(cLI_rds)) {
+  cLI_rds <-  paste0("data/cLI_ARM", i, ".rds")
 
-  # Get list of files and read in from RDS (will take a minute)
-  cLI_list <- list.files("data/mats-ARMS1/", full.names = TRUE) %>%
-    lapply(readRDS)
+  if (!file.exists(cLI_rds)) {
 
-  # Separate out processing from loading when loading is burdensome
-  cLI <- rbindlist(cLI_list) %>%
-    mutate(
-      sub = rep(list.files("data/mats-ARMS1/"), each = 16) %>%
-        str_remove(".rds")
-    )
+    files <- list.files(paste0("data/mats-ARMS", i), full.names = TRUE)
 
-  saveRDS(cLI, cLI_rds)
+    # Get list of files and read in from RDS (will take a minute)
+    cLI_list <- lapply(files, readRDS)
 
-} else {
-  cLI <- readRDS(cLI_rds)
+    # Separate out processing from loading when loading is burdensome
+    cLI <- rbindlist(cLI_list) %>%
+      mutate(
+        sub = rep(files, each = 16) %>%
+          str_remove(".rds")
+      )
+
+    saveRDS(cLI, cLI_rds)
+
+  } else {
+    eval(parse(paste0("cLI", i, "<- readRDS(cLI_rds)")))
+  }
+
 }
 
 cLI <- cLI %>%
