@@ -1,17 +1,17 @@
-setwd("G:/My Drive/Research/laterality/laterality-wta/code_processing//")
+# setwd("G:/My Drive/Research/laterality/laterality-wta/code_processing//")
 
-library(tidyverse)
+suppressPackageStartupMessages(library(tidyverse))
 library(raveio)
 library(ciftiTools)
 
-args <- c("D:/workbench-windows64-v1.4.2/workbench/bin_windows64",
-          "C:/Users/Trevor/Desktop/hO2t.dtseries.nii",
-          "C:/Users/Trevor/Desktop/hO2t_flipped.dscalar.nii",
-          "C:/Users/Trevor/Desktop/sub-NDARINV003RTV85_ses-baselineYear1Arm1_task-rest_bold_timeseries_template_matched_Zscored_overlap_smooth_then_derivative.dtseries.nii",
-          "C:/Users/Trevor/Desktop/flipped_sub-NDARINV00BD7VDC_ses-baselineYear1Arm1_task-rest_bold_timeseries_template_matched_Zscored_overlap_smooth_then_derivative_recolored.dscalar.nii"
-          )
+# args <- c("D:/workbench-windows64-v1.4.2/workbench/bin_windows64",
+#           "C:/Users/Trevor/Desktop/hO2t.dtseries.nii",
+#           "C:/Users/Trevor/Desktop/hO2t_flipped.dscalar.nii",
+#           "C:/Users/Trevor/Desktop/sub-NDARINV003RTV85_ses-baselineYear1Arm1_task-rest_bold_timeseries_template_matched_Zscored_overlap_smooth_then_derivative.dtseries.nii",
+#           "C:/Users/Trevor/Desktop/flipped_sub-NDARINV00BD7VDC_ses-baselineYear1Arm1_task-rest_bold_timeseries_template_matched_Zscored_overlap_smooth_then_derivative_recolored.dscalar.nii"
+#           )
 
-# args <- commandArgs(trailingOnly = TRUE)
+args <- commandArgs(trailingOnly = TRUE)
 
 ciftiTools.setOption("wb_path", args[1])
 eta_LR  <- args[2]
@@ -19,7 +19,7 @@ eta_RL  <- args[3]
 mask_LR <- args[4]
 mask_RL <- args[5]
 
-out <- "./sub-NDARINV00BD7VDC.ods"
+out <- args[6]
 
 ###############################################################################
 
@@ -50,6 +50,8 @@ eta_LR_data <- read_cifti(eta_LR)$data$cortex_left
 eta_RL_data <- read_cifti(eta_RL)$data$cortex_left
 
 eta_LmR <- (eta_LR_data - eta_RL_data) * mask_L_NA
+
+saveRDS(eta_LmR, "eta_LmR.rds")
 
 diff_by_net <- apply(eta_LmR, 2, mean, na.rm = TRUE)
 

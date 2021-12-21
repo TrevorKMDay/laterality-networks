@@ -8,12 +8,14 @@ code=/home/feczk001/day00096/laterality/code
 cd ${cwd} || exit
 
 # Data moved to Anita's share
-source_dir=/home/rando149/shared/projects/ABCD_net_template_matching/ABCD_templ_matched_scalars_group1_10_min_overlap
+abcd=/home/rando149/shared/projects/ABCD_net_template_matching
+d1=${abcd}/ABCD_templ_matched_scalars_group1_10_min_overlap
+d2=${abcd}/ABCD_templ_matched_scalars_group2_10_min_overlap
 
 mkdir -p source flipped
 
 echo -n "Symlinking sources to here ... "
-for i in "${source_dir}"/*_recolored.dtseries.nii ; do
+for i in "${d1}"/*_recolored.dtseries.nii "${d2}"/*_recolored.dtseries.nii ; do
 
     bn=$(basename "${i}")
 
@@ -33,7 +35,7 @@ for i in source/*.nii ; do
         ${code}/bash/create_mirror.sh "${i}" "${flip}"
     fi
 
-    break
+    # break
 
     n=$(( n + 1 ))
     # if [ ${n} -eq 10 ] ; then break ; fi

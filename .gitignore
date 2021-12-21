@@ -1,5 +1,6 @@
 # Large data files
-data/mats-2633/*.mat
+data/mats-ARMS?/*.mat
+data/mats-ARMS?/*_sk.csv
 data/*.zip
 
 # Slurm log files
